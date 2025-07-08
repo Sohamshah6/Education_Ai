@@ -5,6 +5,8 @@ from typing import Optional, List, Dict, Any
 import time
 from datetime import datetime
 import json
+import io
+#import streamlit as st
 
 # Import your backend classes
 from rag_chatbot import RAGChatbot, QuizQuestion, QuizResult
@@ -135,22 +137,20 @@ def initialize_chatbot():
         st.error(f"❌ Error initializing chatbot: {str(e)}")
         return False
 
+
+
 def process_uploaded_file(uploaded_file):
-    """Process uploaded PDF file."""
+    """Process uploaded PDF file using in-memory approach (Streamlit Cloud safe)."""
     try:
         if uploaded_file is not None:
-            # Save uploaded file to temp directory
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-                tmp_file.write(uploaded_file.getvalue())
-                tmp_file_path = tmp_file.name
-            
-            # Process the PDF
+            # Read uploaded PDF file in memory as bytes
+            pdf_bytes = uploaded_file.read()
+            pdf_stream = io.BytesIO(pdf_bytes)
+
             with st.spinner(f"📄 Processing {uploaded_file.name}..."):
-                success = st.session_state.chatbot.process_pdf(tmp_file_path)
-            
-            # Clean up temp file
-            os.unlink(tmp_file_path)
-            
+                # Pass the in-memory PDF stream to your chatbot logic
+                success = st.session_state.chatbot.process_pdf(pdf_stream)
+
             if success:
                 st.success(f"✅ Successfully processed {uploaded_file.name}")
                 st.session_state.processed_files = st.session_state.chatbot.get_processed_files()
@@ -158,9 +158,12 @@ def process_uploaded_file(uploaded_file):
             else:
                 st.error(f"❌ Failed to process {uploaded_file.name}")
                 return False
+
     except Exception as e:
         st.error(f"❌ Error processing file: {str(e)}")
+        st.exception(e)  # Optional: shows traceback for debugging
         return False
+
 
 def display_chat_interface():
     """Display the chat interface."""
