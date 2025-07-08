@@ -15,6 +15,7 @@ import re
 import random
 from dataclasses import dataclass
 from datetime import datetime
+import io
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -743,39 +744,49 @@ Answer: """
             logger.error(f"❌ Error in chat method: {e}")
             return f"I encountered an error while processing your question: {str(e)}"
     
-    def process_pdf(self, pdf_path: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> bool:
-        """Complete pipeline to process a PDF file."""
-        logger.info(f"🚀 Processing PDF: {pdf_path}")
-        
+
+
+    def process_pdf(self, pdf_stream: io.BytesIO, chunk_size: int = 1000, chunk_overlap: int = 200) -> bool:
+        """Complete pipeline to process a PDF file from an in-memory stream (Streamlit Cloud-safe)."""
+        logger.info(f"🚀 Processing PDF from stream...")
+
         try:
-            # Step 1: Parse PDF
-            text = self.parse_pdf(pdf_path)
-            if not text:
-                logger.error("Failed to extract text from PDF")
+            # Step 1: Parse PDF from BytesIO
+            with pdfplumber.open(pdf_stream) as pdf:
+                text = ""
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += page_text
+
+            if not text.strip():
+                logger.error("❌ Failed to extract any text from PDF.")
                 return False
-            
+
             # Step 2: Create chunks
             chunks = self.create_chunks(text, chunk_size, chunk_overlap)
             if not chunks:
-                logger.error("No chunks created from text")
+                logger.error("❌ No chunks created from extracted text.")
                 return False
-            
+
             # Step 3: Setup vectorstore
             success = self.setup_vectorstore(chunks)
             if success:
-                # Add filename to processed files
-                filename = os.path.basename(pdf_path)
-                if filename not in self.processed_files:
-                    self.processed_files.append(filename)
-                logger.info(f"✅ PDF processing completed successfully! File: {filename}")
+                # Since we don’t have a filename in stream, you can skip or use a placeholder
+                placeholder_name = f"streamed_file_{len(self.processed_files)+1}.pdf"
+                if placeholder_name not in self.processed_files:
+                    self.processed_files.append(placeholder_name)
+
+                logger.info(f"✅ PDF processing completed successfully! Placeholder File: {placeholder_name}")
                 return True
             else:
-                logger.error("Failed to setup vectorstore")
+                logger.error("❌ Failed to setup vectorstore.")
                 return False
-                
+
         except Exception as e:
-            logger.error(f"❌ Error processing PDF {pdf_path}: {e}")
+            logger.error(f"❌ Error processing PDF stream: {e}")
             return False
+
     
     # =========================
     # QUIZ FUNCTIONALITY
