@@ -4,7 +4,7 @@ import shutil
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import FAISS
 import logging
 from typing import List, Optional, Tuple, Dict, Any
 import tempfile
@@ -623,7 +623,7 @@ class RAGChatbot:
             return []
     
     def setup_vectorstore(self, text_chunks: List[str]) -> bool:
-        """Create embeddings and store in ChromaDB."""
+        """Create embeddings and store in FAISS (Streamlit Cloud compatible)."""
         try:
             # Filter out empty or whitespace-only chunks
             text_chunks = [chunk for chunk in text_chunks if chunk.strip()]
@@ -644,20 +644,27 @@ class RAGChatbot:
             # If vectorstore exists, add to it; otherwise create new one
             if self.vectorstore is None:
                 logger.info("🔄 Creating new vectorstore...")
-                self.vectorstore = Chroma.from_texts(
+                
+                # CHANGED: Use FAISS instead of Chroma
+                self.vectorstore = FAISS.from_texts(
                     texts=text_chunks,
                     embedding=self.embedding_model,
-                    persist_directory=self.persist_path
+                    metadatas=[{"chunk_id": i, "source": "uploaded_pdf"} for i in range(len(text_chunks))]
                 )
                 logger.info(f"✅ Created new vectorstore with {len(text_chunks)} valid chunks.")
             else:
                 logger.info("🔄 Adding to existing vectorstore...")
-                self.vectorstore.add_texts(text_chunks)
+                
+                # CHANGED: FAISS add_texts method
+                self.vectorstore.add_texts(
+                    texts=text_chunks,
+                    metadatas=[{"chunk_id": i, "source": "uploaded_pdf"} for i in range(len(text_chunks))]
+                )
                 logger.info(f"✅ Added {len(text_chunks)} chunks to existing vectorstore.")
 
-            # Persist the vectorstore
-            self.vectorstore.persist()
-            logger.info("💾 Vectorstore persisted successfully")
+            # REMOVED: FAISS doesn't need persist() method like Chroma
+            # self.vectorstore.persist()  # Remove this line
+            logger.info("💾 Vectorstore saved in memory")
 
             # Initialize quiz generator after vectorstore is ready
             self.quiz_generator = QuizGenerator(self.llm, self.vectorstore)
@@ -683,8 +690,9 @@ class RAGChatbot:
         if not self.vectorstore:
             logger.error("Vectorstore not initialized. Call setup_vectorstore first.")
             return []
-        
+                
         try:
+            # CHANGED: FAISS uses the same retriever interface as Chroma
             retriever = self.vectorstore.as_retriever(
                 search_type="similarity", 
                 search_kwargs={"k": k}
@@ -921,13 +929,18 @@ Answer: """
     def clear_database(self) -> bool:
         """Clear the vector database."""
         try:
-            if os.path.exists(self.persist_path):
-                shutil.rmtree(self.persist_path)
-                logger.info("🗑️ Cleared ChromaDB cache.")
+            # CHANGED: FAISS doesn't use persist_path, so remove directory cleanup
+            # REMOVED: ChromaDB-specific directory cleanup
+            # if os.path.exists(self.persist_path):
+            #     shutil.rmtree(self.persist_path)
+            #     logger.info("🗑️ Cleared ChromaDB cache.")
             
+            # FAISS cleanup - just clear memory
             self.vectorstore = None
             self.quiz_generator = None
             self.processed_files = []
+            
+            logger.info("🗑️ Cleared FAISS vectorstore from memory.")
             return True
         except Exception as e:
             logger.error(f"❌ Error clearing database: {e}")
