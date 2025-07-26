@@ -1,7 +1,6 @@
 # enhanced_rag_chatbot.py
 import os
 import shutil
-import pdfplumber
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
@@ -16,6 +15,7 @@ import random
 from dataclasses import dataclass
 from datetime import datetime
 import io
+import fitz
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -573,21 +573,32 @@ class RAGChatbot:
                 raise ValueError("Could not initialize any Gemini model")
     
     def parse_pdf(self, pdf_path: str) -> Optional[str]:
-        """Extract text from PDF file."""
+        """Extract text from PDF file using PyMuPDF."""
         try:
             if not os.path.exists(pdf_path):
                 logger.error(f"PDF file not found: {pdf_path}")
                 return None
-                
-            with pdfplumber.open(pdf_path) as pdf:
-                text = "\n".join(page.extract_text() or '' for page in pdf.pages)
+                        
+            # Open PDF with PyMuPDF
+            pdf_document = fitz.open(pdf_path)
+            text = ""
             
+            # Extract text from each page
+            for page_num in range(len(pdf_document)):
+                page = pdf_document.load_page(page_num)
+                page_text = page.get_text()
+                if page_text:
+                    text += page_text + "\n"
+            
+            pdf_document.close()
+                        
             if not text.strip():
                 logger.warning("No text extracted from PDF")
                 return None
-                
+                        
             logger.info(f"✅ Parsed {len(text)} characters from PDF.")
             return text
+            
         except Exception as e:
             logger.error(f"❌ Error parsing PDF: {e}")
             return None
@@ -749,40 +760,51 @@ Answer: """
     def process_pdf(self, pdf_stream: io.BytesIO, chunk_size: int = 1000, chunk_overlap: int = 200) -> bool:
         """Complete pipeline to process a PDF file from an in-memory stream (Streamlit Cloud-safe)."""
         logger.info(f"🚀 Processing PDF from stream...")
-
+        
         try:
-            # Step 1: Parse PDF from BytesIO
-            with pdfplumber.open(pdf_stream) as pdf:
-                text = ""
-                for page in pdf.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text
-
+            # Step 1: Parse PDF from BytesIO using PyMuPDF
+            # Reset stream position to beginning
+            pdf_stream.seek(0)
+            
+            # Read bytes from stream
+            pdf_bytes = pdf_stream.read()
+            
+            # Open with PyMuPDF from bytes
+            pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
+            
+            text = ""
+            for page_num in range(len(pdf_document)):
+                page = pdf_document.load_page(page_num)
+                page_text = page.get_text()
+                if page_text:
+                    text += page_text + "\n"
+            
+            pdf_document.close()
+            
             if not text.strip():
                 logger.error("❌ Failed to extract any text from PDF.")
                 return False
-
-            # Step 2: Create chunks
+            
+            # Step 2: Create chunks (unchanged)
             chunks = self.create_chunks(text, chunk_size, chunk_overlap)
             if not chunks:
                 logger.error("❌ No chunks created from extracted text.")
                 return False
-
-            # Step 3: Setup vectorstore
+            
+            # Step 3: Setup vectorstore (unchanged)
             success = self.setup_vectorstore(chunks)
             if success:
-                # Since we don’t have a filename in stream, you can skip or use a placeholder
+                # Since we don't have a filename in stream, you can skip or use a placeholder
                 placeholder_name = f"streamed_file_{len(self.processed_files)+1}.pdf"
                 if placeholder_name not in self.processed_files:
                     self.processed_files.append(placeholder_name)
-
+                
                 logger.info(f"✅ PDF processing completed successfully! Placeholder File: {placeholder_name}")
                 return True
             else:
                 logger.error("❌ Failed to setup vectorstore.")
                 return False
-
+            
         except Exception as e:
             logger.error(f"❌ Error processing PDF stream: {e}")
             return False
